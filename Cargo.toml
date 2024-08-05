@@ -1,6 +1,6 @@
 [package]
 name = "bcrypt-no-getrandom"
-version = "0.15.4"
+version = "0.16.0"
 authors = ["Vincent Prouillet <hello@prouilletvincent.com>", "Skyler Calaman"]
 license = "MIT"
 readme = "README.md"
