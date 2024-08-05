@@ -1,4 +1,7 @@
 //! Easily hash and verify passwords using bcrypt
+//! 
+//! Forked to remove getrandom dependency completely
+
 #![forbid(unsafe_code)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -17,7 +20,7 @@ use zeroize::Zeroize;
 use base64::{alphabet::BCRYPT, engine::general_purpose::NO_PAD, engine::GeneralPurpose};
 use core::fmt;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use {base64::Engine, core::convert::AsRef, core::str::FromStr, getrandom::getrandom};
+use {base64::Engine, core::convert::AsRef, core::str::FromStr};
 
 mod bcrypt;
 mod errors;
@@ -52,11 +55,6 @@ pub enum Version {
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl HashParts {
-    /// Creates the bcrypt hash string from all its parts
-    fn format(self) -> String {
-        self.format_for_version(Version::TwoB)
-    }
-
     /// Get the bcrypt hash cost
     pub fn get_cost(&self) -> u32 {
         self.cost
@@ -168,26 +166,6 @@ fn split_hash(hash: &str) -> BcryptResult<HashParts> {
     Ok(parts)
 }
 
-/// Generates a password hash using the cost given.
-/// The salt is generated randomly using the OS randomness
-#[cfg(any(feature = "alloc", feature = "std"))]
-pub fn hash<P: AsRef<[u8]>>(password: P, cost: u32) -> BcryptResult<String> {
-    hash_with_result(password, cost).map(|r| r.format())
-}
-
-/// Generates a password hash using the cost given.
-/// The salt is generated randomly using the OS randomness.
-/// The function returns a result structure and allows to format the hash in different versions.
-#[cfg(any(feature = "alloc", feature = "std"))]
-pub fn hash_with_result<P: AsRef<[u8]>>(password: P, cost: u32) -> BcryptResult<HashParts> {
-    let salt = {
-        let mut s = [0u8; 16];
-        getrandom(&mut s).map(|_| s)
-    }?;
-
-    _hash_password(password.as_ref(), cost, salt)
-}
-
 /// Generates a password given a hash and a cost.
 /// The function returns a result structure and allows to format the hash in different versions.
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -226,15 +204,13 @@ mod tests {
         alloc::{
             string::{String, ToString},
             vec,
-            vec::Vec,
         },
-        hash, hash_with_salt, split_hash, verify, BcryptError, BcryptResult, HashParts, Version,
+        hash_with_salt, split_hash, verify, BcryptError, HashParts, Version,
         DEFAULT_COST,
     };
     use core::convert::TryInto;
     use core::iter;
     use core::str::FromStr;
-    use quickcheck::{quickcheck, TestResult};
 
     #[test]
     fn can_split_hash() {
@@ -354,12 +330,6 @@ mod tests {
     }
 
     #[test]
-    fn can_verify_own_generated() {
-        let hashed = hash("hunter2", 4).unwrap();
-        assert_eq!(true, verify("hunter2", &hashed).unwrap());
-    }
-
-    #[test]
     fn long_passwords_truncate_correctly() {
         // produced with python -c 'import bcrypt; bcrypt.hashpw(b"x"*100, b"$2a$05$...............................")'
         let hash = "$2a$05$......................YgIDy4hFBdVlc/6LHnD9mX488r9cLd2";
@@ -396,8 +366,8 @@ mod tests {
         // hash p1, check the hash against p2:
         fn hash_and_check(p1: &[u8], p2: &[u8]) -> Result<bool, BcryptError> {
             let fast_cost = 4;
-            match hash(p1, fast_cost) {
-                Ok(s) => verify(p2, &s),
+            match hash_with_salt(p1, fast_cost, [0x11; 16]) {
+                Ok(s) => verify(p2, &s.format_for_version(Version::TwoB)),
                 Err(e) => Err(e),
             }
         }
@@ -449,27 +419,6 @@ mod tests {
             "$2y$05$HlFShUxTu4ZHHfOLJwfmCeDj/kuKFKboanXtDJXxCC7aIPTUgxNDe",
             &hashed
         );
-    }
-
-    quickcheck! {
-        fn can_verify_arbitrary_own_generated(pass: Vec<u8>) -> BcryptResult<bool> {
-            let mut pass = pass;
-            pass.retain(|&b| b != 0);
-            let hashed = hash(&pass, 4)?;
-            verify(pass, &hashed)
-        }
-
-        fn doesnt_verify_different_passwords(a: Vec<u8>, b: Vec<u8>) -> BcryptResult<TestResult> {
-            let mut a = a;
-            a.retain(|&b| b != 0);
-            let mut b = b;
-            b.retain(|&b| b != 0);
-            if a == b {
-                return Ok(TestResult::discard());
-            }
-            let hashed = hash(a, 4)?;
-            Ok(TestResult::from_bool(!verify(b, &hashed)?))
-        }
     }
 
     #[test]

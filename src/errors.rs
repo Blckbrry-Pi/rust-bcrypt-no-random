@@ -25,8 +25,6 @@ pub enum BcryptError {
     InvalidHash(String),
     InvalidSaltLen(usize),
     InvalidBase64(base64::DecodeError),
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    Rand(getrandom::Error),
 }
 
 macro_rules! impl_from_error {
@@ -42,8 +40,6 @@ macro_rules! impl_from_error {
 impl_from_error!(base64::DecodeError, BcryptError::InvalidBase64);
 #[cfg(feature = "std")]
 impl_from_error!(io::Error, BcryptError::Io);
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl_from_error!(getrandom::Error, BcryptError::Rand);
 
 impl fmt::Display for BcryptError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -67,8 +63,6 @@ impl fmt::Display for BcryptError {
             BcryptError::InvalidSaltLen(len) => {
                 write!(f, "Invalid salt len: expected 16, received {}", len)
             }
-            #[cfg(any(feature = "alloc", feature = "std"))]
-            BcryptError::Rand(ref err) => write!(f, "Rand error: {}", err),
         }
     }
 }
@@ -84,7 +78,6 @@ impl error::Error for BcryptError {
             | BcryptError::InvalidHash(_)
             | BcryptError::InvalidSaltLen(_) => None,
             BcryptError::InvalidBase64(ref err) => Some(err),
-            BcryptError::Rand(ref err) => Some(err),
         }
     }
 }

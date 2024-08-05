@@ -42,7 +42,7 @@ jobs:
       run: cargo test --no-default-features --features alloc
 
   bare-metal:
-    # tests no alloc, no_std, no getrandom
+    # tests no alloc, no_std
     name: bare-metal
     runs-on: ubuntu-latest
 

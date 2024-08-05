@@ -54,6 +54,8 @@ for new projects.
 
 ## Changelog
 
+* fork change: Remove `getrandom`
+
 * 0.15.1: update base64 dependency
 * 0.15.0: add an `alloc` feature that can be disabled.
 * 0.14.0: use `subtle` crate for constant time comparison, update base64 and bump to 2021 edition
