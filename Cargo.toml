@@ -1,12 +1,12 @@
 [package]
-name = "bcrypt"
+name = "bcrypt-no-getrandom"
 version = "0.15.1"
-authors = ["Vincent Prouillet <hello@prouilletvincent.com>"]
+authors = ["Vincent Prouillet <hello@prouilletvincent.com>", "Skyler Calaman"]
 license = "MIT"
 readme = "README.md"
-description = "Easily hash and verify passwords using bcrypt"
-homepage = "https://github.com/Keats/rust-bcrypt"
-repository = "https://github.com/Keats/rust-bcrypt"
+description = "Easily hash and verify passwords using bcrypt without getrandom"
+homepage = "https://github.com/Blckbrry-Pi/rust-bcrypt-no-random"
+repository = "https://github.com/Blckbrry-Pi/rust-bcrypt-no-random"
 keywords = ["bcrypt", "password", "web", "hash"]
 edition = "2021"
 include = ["src/**/*", "LICENSE", "README.md"]

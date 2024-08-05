@@ -1,7 +1,7 @@
-extern crate bcrypt;
+extern crate bcrypt_no_getrandom;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-use bcrypt::{hash_with_salt, verify, DEFAULT_COST};
+use bcrypt_no_getrandom::{hash_with_salt, verify, DEFAULT_COST, Version::TwoB};
 
 static SALT: [u8; 16] = *b"abcdefghijklmnop";
 
@@ -9,7 +9,7 @@ static SALT: [u8; 16] = *b"abcdefghijklmnop";
 fn main() {
     let hashed = hash_with_salt("hunter2", DEFAULT_COST, SALT)
         .unwrap()
-        .format_for_version(bcrypt::Version::TwoB);
+        .format_for_version(TwoB);
     let valid = verify("hunter2", &hashed).unwrap();
     println!("{:?}", valid);
 }

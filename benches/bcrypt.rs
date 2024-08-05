@@ -1,8 +1,8 @@
 #![feature(test)]
-extern crate bcrypt;
+extern crate bcrypt_no_getrandom;
 extern crate test;
 
-use bcrypt::{hash_with_salt, DEFAULT_COST};
+use bcrypt_no_getrandom::{hash_with_salt, DEFAULT_COST};
 
 static SALT: [u8; 16] = *b"hello world salt";
 

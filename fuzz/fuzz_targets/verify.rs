@@ -2,5 +2,5 @@
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    let _ = bcrypt::hash(&data, 4);
+    let _ = bcrypt_no_getrandom::hash(&data, 4);
 });

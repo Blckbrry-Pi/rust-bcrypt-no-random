@@ -7,6 +7,6 @@ use cortex_m_rt::entry;
 #[entry]
 fn main() -> ! {
     let salt = [1u8; 16];
-    let _crypt = bcrypt::bcrypt(6, salt, b"password");
+    let _crypt = bcrypt_no_getrandom::bcrypt(6, salt, b"password");
     loop {}
 }
