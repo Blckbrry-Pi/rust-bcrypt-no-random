@@ -1,26 +1,23 @@
 //! Easily hash and verify passwords using bcrypt
-//! 
+//!
 //! Forked to remove getrandom dependency completely
 
-#![forbid(unsafe_code)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(any(feature = "alloc", feature = "std", test))]
 extern crate alloc;
 
 #[cfg(any(feature = "alloc", feature = "std", test))]
-use alloc::{
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::string::{String, ToString};
 
-#[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
-
+use base64::Engine;
 use base64::{alphabet::BCRYPT, engine::general_purpose::NO_PAD, engine::GeneralPurpose};
-use core::fmt;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use {base64::Engine, core::convert::AsRef, core::str::FromStr};
+use core::convert::AsRef;
+use core::{
+    fmt,
+    str::{self, FromStr},
+};
 
 mod bcrypt;
 mod errors;
@@ -34,13 +31,13 @@ const MAX_COST: u32 = 31;
 pub const DEFAULT_COST: u32 = 12;
 pub const BASE_64: GeneralPurpose = GeneralPurpose::new(&BCRYPT, NO_PAD);
 
-#[cfg(any(feature = "alloc", feature = "std"))]
+// #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug, PartialEq)]
 /// A bcrypt hash result before concatenating
 pub struct HashParts {
     cost: u32,
-    salt: String,
-    hash: String,
+    salt: [u8; 22],
+    hash: [u8; 31],
 }
 
 #[derive(Clone, Debug)]
@@ -53,7 +50,17 @@ pub enum Version {
     TwoB,
 }
 
-#[cfg(any(feature = "alloc", feature = "std"))]
+impl Version {
+    pub fn as_static_str(self) -> &'static str {
+        match self {
+            Version::TwoA => "2a",
+            Version::TwoB => "2b",
+            Version::TwoX => "2x",
+            Version::TwoY => "2y",
+        }
+    }
+}
+
 impl HashParts {
     /// Get the bcrypt hash cost
     pub fn get_cost(&self) -> u32 {
@@ -61,18 +68,42 @@ impl HashParts {
     }
 
     /// Get the bcrypt hash salt
-    pub fn get_salt(&self) -> String {
-        self.salt.clone()
+    pub fn get_salt(&self) -> &str {
+        str::from_utf8(&self.salt).unwrap()
     }
 
     /// Creates the bcrypt hash string from all its part, allowing to customize the version.
+    ///
+    /// Expects an exactly 60-byte output buffer.
+    ///
+    /// *See also: [`Self::format_for_version`]*
+    pub fn format_for_version_into(&self, version: Version, output: &mut [u8]) {
+        output[0] = b'$';
+        output[1..3].copy_from_slice(version.as_static_str().as_bytes());
+        output[3] = b'$';
+
+        output[4] = b'0' + (self.cost / 10) as u8;
+        output[5] = b'0' + (self.cost % 10) as u8;
+
+        output[6] = b'$';
+        output[7..29].copy_from_slice(&self.salt);
+        output[29..].copy_from_slice(&self.hash);
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    /// Creates the bcrypt hash string from all its part, allowing to customize the version.
     pub fn format_for_version(&self, version: Version) -> String {
         // Cost need to have a length of 2 so padding with a 0 if cost < 10
-        alloc::format!("${}${:02}${}{}", version, self.cost, self.salt, self.hash)
+        alloc::format!(
+            "${}${:02}${}{}",
+            version,
+            self.cost,
+            self.get_salt(),
+            str::from_utf8(&self.hash).unwrap(),
+        )
     }
 }
 
-#[cfg(any(feature = "alloc", feature = "std"))]
 impl FromStr for HashParts {
     type Err = BcryptError;
 
@@ -102,65 +133,86 @@ impl fmt::Display for Version {
 
 /// The main meat: actually does the hashing and does some verification with
 /// the cost to ensure it's a correct one
-#[cfg(any(feature = "alloc", feature = "std"))]
 fn _hash_password(password: &[u8], cost: u32, salt: [u8; 16]) -> BcryptResult<HashParts> {
     if !(MIN_COST..=MAX_COST).contains(&cost) {
         return Err(BcryptError::CostNotAllowed(cost));
     }
 
-    // Passwords need to be null terminated
-    let mut vec = Vec::with_capacity(password.len() + 1);
-    vec.extend_from_slice(password);
-    vec.push(0);
-    // We only consider the first 72 chars; truncate if necessary.
-    // `bcrypt` below will panic if len > 72
-    let truncated = if vec.len() > 72 { &vec[..72] } else { &vec };
+    let mut truncated = [0; 72];
+    let capped_len = password.len().min(truncated.len());
 
-    let output = bcrypt::bcrypt(cost, salt, truncated);
+    truncated[..capped_len].copy_from_slice(&password[..capped_len]);
 
-    #[cfg(feature = "zeroize")]
-    vec.zeroize();
+    let borrowed_len = (capped_len + 1).min(truncated.len());
+
+    let output = bcrypt::bcrypt(cost, salt, &truncated[..borrowed_len]);
+
+    unsafe {
+        // Zeroize the truncated buffer (not optimized away)
+        core::ptr::write_volatile(&mut truncated, [0; 72]);
+    }
+
+    let mut salt_buf = [0; 22];
+    let mut hash_buf = [0; 31];
+
+    if BASE_64.encode_slice(salt, &mut salt_buf).is_err() {
+        return Err(BcryptError::Other("Failed to encode bcrypt output"));
+    }
+
+    if BASE_64.encode_slice(&output[..23], &mut hash_buf).is_err() {
+        // remember to remove the last byte
+        return Err(BcryptError::Other("Failed to encode bcrypt output"));
+    }
 
     Ok(HashParts {
         cost,
-        salt: BASE_64.encode(salt),
-        hash: BASE_64.encode(&output[..23]), // remember to remove the last byte
+        salt: salt_buf,
+        hash: hash_buf,
     })
 }
 
 /// Takes a full hash and split it into 3 parts:
 /// cost, salt and hash
-#[cfg(any(feature = "alloc", feature = "std"))]
 fn split_hash(hash: &str) -> BcryptResult<HashParts> {
     let mut parts = HashParts {
         cost: 0,
-        salt: "".to_string(),
-        hash: "".to_string(),
+        salt: [0; 22],
+        hash: [0; 31],
     };
 
-    // Should be [prefix, cost, hash]
-    let raw_parts: Vec<_> = hash.split('$').filter(|s| !s.is_empty()).collect();
+    let hash = hash.trim_start_matches('$');
 
-    if raw_parts.len() != 3 {
-        return Err(BcryptError::InvalidHash(hash.to_string()));
+    let Some((prefix, cost_and_hash)) = hash.split_once('$') else {
+        return Err(BcryptError::InvalidHash("Wrong number of parts"));
+    };
+
+    let Some((cost, hash)) = cost_and_hash.split_once('$') else {
+        return Err(BcryptError::InvalidHash("Wrong number of parts"));
+    };
+
+    if hash.contains('$') {
+        return Err(BcryptError::InvalidHash("Wrong number of parts"));
     }
 
-    if raw_parts[0] != "2y" && raw_parts[0] != "2b" && raw_parts[0] != "2a" && raw_parts[0] != "2x"
-    {
-        return Err(BcryptError::InvalidPrefix(raw_parts[0].to_string()));
+    if prefix != "2y" && prefix != "2b" && prefix != "2a" && prefix != "2x" {
+        return Err(BcryptError::InvalidPrefix);
     }
 
-    if let Ok(c) = raw_parts[1].parse::<u32>() {
+    if let Ok(c) = cost.parse::<u32>() {
         parts.cost = c;
     } else {
-        return Err(BcryptError::InvalidCost(raw_parts[1].to_string()));
+        return Err(BcryptError::InvalidCost);
     }
 
-    if raw_parts[2].len() == 53 && raw_parts[2].is_char_boundary(22) {
-        parts.salt = raw_parts[2][..22].chars().collect();
-        parts.hash = raw_parts[2][22..].chars().collect();
+    if hash.len() == 53 && hash.is_char_boundary(22) {
+        parts.salt = hash.as_bytes()[..22]
+            .try_into()
+            .map_err(|_| BcryptError::InvalidSalt)?;
+        parts.hash = hash.as_bytes()[22..]
+            .try_into()
+            .map_err(|_| BcryptError::InvalidSalt)?;
     } else {
-        return Err(BcryptError::InvalidHash(hash.to_string()));
+        return Err(BcryptError::InvalidHash("Wrong hash length"));
     }
 
     Ok(parts)
@@ -168,7 +220,6 @@ fn split_hash(hash: &str) -> BcryptResult<HashParts> {
 
 /// Generates a password given a hash and a cost.
 /// The function returns a result structure and allows to format the hash in different versions.
-#[cfg(any(feature = "alloc", feature = "std"))]
 pub fn hash_with_salt<P: AsRef<[u8]>>(
     password: P,
     cost: u32,
@@ -178,26 +229,24 @@ pub fn hash_with_salt<P: AsRef<[u8]>>(
 }
 
 /// Verify that a password is equivalent to the hash provided
-#[cfg(any(feature = "alloc", feature = "std"))]
 pub fn verify<P: AsRef<[u8]>>(password: P, hash: &str) -> BcryptResult<bool> {
     use subtle::ConstantTimeEq;
 
     let parts = split_hash(hash)?;
-    let salt = BASE_64.decode(&parts.salt)?;
-    let salt_len = salt.len();
-    let generated = _hash_password(
-        password.as_ref(),
-        parts.cost,
-        salt.try_into()
-            .map_err(|_| BcryptError::InvalidSaltLen(salt_len))?,
-    )?;
-    let source_decoded = BASE_64.decode(parts.hash)?;
-    let generated_decoded = BASE_64.decode(generated.hash)?;
+    let mut salt = [0; 16];
+    BASE_64.decode_slice(&parts.salt, &mut salt)?;
+
+    let generated = _hash_password(password.as_ref(), parts.cost, salt)?;
+
+    let mut source_decoded = [0; 23];
+    let mut generated_decoded = [0; 23];
+    BASE_64.decode_slice(parts.hash, &mut source_decoded)?;
+    BASE_64.decode_slice(generated.hash, &mut generated_decoded)?;
 
     Ok(source_decoded.ct_eq(&generated_decoded).into())
 }
 
-#[cfg(all(test, any(feature = "alloc", feature = "std")))]
+#[cfg(all(test))]
 mod tests {
     use super::{
         _hash_password,
@@ -205,8 +254,7 @@ mod tests {
             string::{String, ToString},
             vec,
         },
-        hash_with_salt, split_hash, verify, BcryptError, HashParts, Version,
-        DEFAULT_COST,
+        hash_with_salt, split_hash, verify, BcryptError, HashParts, Version, DEFAULT_COST,
     };
     use core::convert::TryInto;
     use core::iter;
@@ -218,8 +266,11 @@ mod tests {
         let output = split_hash(hash).unwrap();
         let expected = HashParts {
             cost: 12,
-            salt: "L6Bc/AlTQHyd9liGgGEZyO".to_string(),
-            hash: "FLPHNgyxeEPfgYfBCVxJ7JIlwxyVU3u".to_string(),
+            salt: "L6Bc/AlTQHyd9liGgGEZyO".as_bytes().try_into().unwrap(),
+            hash: "FLPHNgyxeEPfgYfBCVxJ7JIlwxyVU3u"
+                .as_bytes()
+                .try_into()
+                .unwrap(),
         };
         assert_eq!(output, expected);
     }
@@ -336,6 +387,7 @@ mod tests {
         assert!(verify(iter::repeat("x").take(100).collect::<String>(), hash).unwrap());
     }
 
+    #[cfg(any(feature = "alloc", feature = "std"))]
     #[test]
     fn generate_versions() {
         let password = "hunter2".as_bytes();
@@ -361,6 +413,7 @@ mod tests {
         assert_eq!(true, verify("hunter2", &hash).unwrap());
     }
 
+    #[cfg(any(feature = "alloc", feature = "std"))]
     #[test]
     fn allow_null_bytes() {
         // hash p1, check the hash against p2:
@@ -407,6 +460,7 @@ mod tests {
         assert_valid_password("\0\0\0\0\0\0\0\0".as_bytes(), "\0".as_bytes(), true);
     }
 
+    #[cfg(any(feature = "alloc", feature = "std"))]
     #[test]
     fn hash_with_fixed_salt() {
         let salt = [

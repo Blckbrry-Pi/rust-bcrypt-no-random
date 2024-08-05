@@ -1,10 +1,10 @@
 [package]
 name = "bcrypt-no-getrandom"
-version = "0.15.1"
+version = "0.15.4"
 authors = ["Vincent Prouillet <hello@prouilletvincent.com>", "Skyler Calaman"]
 license = "MIT"
 readme = "README.md"
-description = "Easily hash and verify passwords using bcrypt without getrandom"
+description = "Easily hash and verify passwords using bcrypt without getrandom or zeroize, providing near-complete functionality without alloc or std"
 homepage = "https://github.com/Blckbrry-Pi/rust-bcrypt-no-random"
 repository = "https://github.com/Blckbrry-Pi/rust-bcrypt-no-random"
 keywords = ["bcrypt", "password", "web", "hash"]
@@ -12,15 +12,14 @@ edition = "2021"
 include = ["src/**/*", "LICENSE", "README.md"]
 
 [features]
-default = ["std", "zeroize"]
+default = ["std"]
 std = ["base64/std"]
-alloc = ["base64/alloc"]
+alloc = []
 
 [dependencies]
 blowfish = { version = "0.9", features = ["bcrypt"] }
 base64 = { version = "0.22", default-features = false }
-zeroize = { version = "1.5.4", optional = true }
-subtle = { version = "2.4.1", default-features = false }
+subtle = { version = "2.6", default-features = false }
 
 
 [badges]

@@ -1,5 +1,3 @@
-#[cfg(any(feature = "alloc", feature = "std"))]
-use alloc::string::String;
 use core::fmt;
 
 #[cfg(feature = "std")]
@@ -17,14 +15,13 @@ pub enum BcryptError {
     #[cfg(feature = "std")]
     Io(io::Error),
     CostNotAllowed(u32),
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    InvalidCost(String),
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    InvalidPrefix(String),
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    InvalidHash(String),
+    InvalidCost,
+    InvalidPrefix,
+    InvalidHash(&'static str),
     InvalidSaltLen(usize),
-    InvalidBase64(base64::DecodeError),
+    InvalidSalt,
+    InvalidBase64(base64::DecodeSliceError),
+    Other(&'static str),
 }
 
 macro_rules! impl_from_error {
@@ -37,7 +34,7 @@ macro_rules! impl_from_error {
     };
 }
 
-impl_from_error!(base64::DecodeError, BcryptError::InvalidBase64);
+impl_from_error!(base64::DecodeSliceError, BcryptError::InvalidBase64);
 #[cfg(feature = "std")]
 impl_from_error!(io::Error, BcryptError::Io);
 
@@ -46,8 +43,7 @@ impl fmt::Display for BcryptError {
         match *self {
             #[cfg(feature = "std")]
             BcryptError::Io(ref err) => write!(f, "IO error: {}", err),
-            #[cfg(any(feature = "alloc", feature = "std"))]
-            BcryptError::InvalidCost(ref cost) => write!(f, "Invalid Cost: {}", cost),
+            BcryptError::InvalidCost => write!(f, "Invalid Cost"),
             BcryptError::CostNotAllowed(ref cost) => write!(
                 f,
                 "Cost needs to be between {} and {}, got {}",
@@ -55,14 +51,14 @@ impl fmt::Display for BcryptError {
                 crate::MAX_COST,
                 cost
             ),
-            #[cfg(any(feature = "alloc", feature = "std"))]
-            BcryptError::InvalidPrefix(ref prefix) => write!(f, "Invalid Prefix: {}", prefix),
-            #[cfg(any(feature = "alloc", feature = "std"))]
+            BcryptError::InvalidPrefix => write!(f, "Invalid Prefix"),
             BcryptError::InvalidHash(ref hash) => write!(f, "Invalid hash: {}", hash),
             BcryptError::InvalidBase64(ref err) => write!(f, "Base64 error: {}", err),
             BcryptError::InvalidSaltLen(len) => {
                 write!(f, "Invalid salt len: expected 16, received {}", len)
             }
+            BcryptError::InvalidSalt => write!(f, "Invalid salt"),
+            BcryptError::Other(ref err) => write!(f, "{}", err),
         }
     }
 }
@@ -72,10 +68,12 @@ impl error::Error for BcryptError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
             BcryptError::Io(ref err) => Some(err),
-            BcryptError::InvalidCost(_)
+            BcryptError::InvalidCost
+            | BcryptError::InvalidSalt
+            | BcryptError::InvalidPrefix
             | BcryptError::CostNotAllowed(_)
-            | BcryptError::InvalidPrefix(_)
             | BcryptError::InvalidHash(_)
+            | BcryptError::Other(_)
             | BcryptError::InvalidSaltLen(_) => None,
             BcryptError::InvalidBase64(ref err) => Some(err),
         }

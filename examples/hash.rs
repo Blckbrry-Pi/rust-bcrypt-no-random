@@ -1,7 +1,7 @@
 extern crate bcrypt_no_getrandom;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-use bcrypt_no_getrandom::{hash_with_salt, verify, DEFAULT_COST, Version::TwoB};
+use bcrypt_no_getrandom::{hash_with_salt, verify, Version::TwoB, DEFAULT_COST};
 
 static SALT: [u8; 16] = *b"abcdefghijklmnop";
 
